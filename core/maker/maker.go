@@ -1,4 +1,4 @@
-package runner
+package maker
 
 import (
 	"bahamut/core/component"
@@ -14,24 +14,23 @@ import (
 )
 
 type (
-	Runner struct {
+	Maker struct {
 		ID             uuid.UUID
 		Name           string
 		Queue          *queue.Queue
 		Db             map[uuid.UUID]*component.Component // TODO: Replace it with persistent datastore.
-		OfType         types.RunnerGroup
+		OfType         types.MakerType
 		ComponentCount uint64
-		// TODO: Add semantic Grouping to components. :BI:INGESTION:API:DATASTORE.
 	}
 )
 
-// Return [] of runners
-func New(Name string, OfType types.RunnerGroup, NoOfRunners int) []*Runner {
+// Return [] of Maker
+func New(Name string, OfType types.MakerType, NoOfMakers int) []*Maker {
 	// TODO: Load from previous persistent queue stack, and Db.
-	var runners []*Runner
+	var Makers []*Maker
 
-	for i := 0; i < NoOfRunners; i++ {
-		runner := &Runner{
+	for i := 0; i < NoOfMakers; i++ {
+		Maker := &Maker{
 			ID:             uuid.New(),
 			Name:           Name,
 			Queue:          queue.New(),
@@ -39,48 +38,48 @@ func New(Name string, OfType types.RunnerGroup, NoOfRunners int) []*Runner {
 			OfType:         OfType,
 			ComponentCount: 0,
 		}
-		runners = append(runners, runner)
+		Makers = append(Makers, Maker)
 	}
-	return runners
+	return Makers
 }
 
-func (r *Runner) Start() {
+func (r *Maker) Start() {
 	for {
 		if r.Queue.Len() != 0 {
-			result := r.Run()
+			result := r.run()
 			if result.Error != nil {
 				log.Print("Encountered error running component: %v", result.Error)
 			}
 		} else {
-			log.Printf("No component scheduled to run at Runner: %v", r.Name)
+			log.Printf("No component scheduled to run at Maker: %v", r.Name)
 		}
 		// log.Println("Sleeping for 10 seconds")
 		time.Sleep(10 * time.Second)
 	}
 }
 
-func (r *Runner) Run() docker.DockerResult {
+func (r *Maker) run() docker.DockerResult {
 	comp := r.Queue.Dequeue()
 
 	// interface to component type.
 	compQueued := comp.(component.Component)
 	log.Println("Processing a component in Queued, with state: %v", compQueued.State)
 
-	compPersisted := r.Db[compQueued.ID] // if task exists in DB should be retirved then checked to see if runner should transist it to recived state.
+	compPersisted := r.Db[compQueued.ID] // if task exists in DB should be retirved then checked to see if Maker should transist it to recived state.
 
 	if compPersisted == nil {
 		compPersisted = &compQueued
 	}
 
-	r.Sync(&compQueued)
+	r.sync(&compQueued)
 
 	var result docker.DockerResult
 	if component.ShouldTransition(compPersisted.State, compQueued.State) {
 		switch compQueued.State {
 		case component.Scheduled:
-			result = r.StartComponent(&compQueued)
+			result = r.startComponent(&compQueued)
 		case component.Completed:
-			result = r.StopComponent(&compQueued)
+			result = r.stopComponent(&compQueued)
 		default:
 			result.Error = errors.New("Encountered unexpected component state transistion error.")
 		}
@@ -92,43 +91,43 @@ func (r *Runner) Run() docker.DockerResult {
 }
 
 // Start a component by calling its docker.Run method. and updating the state to state.Running.
-func (r *Runner) StartComponent(c *component.Component) docker.DockerResult {
+func (r *Maker) startComponent(c *component.Component) docker.DockerResult {
 	result := c.Docker.Run()
 	if result.Error != nil {
 		log.Print("Encountered error running component: %v", result.Error)
 		c.State = component.Failed
-		r.Sync(c)
+		r.sync(c)
 		return result
 	}
 	c.State = component.Running
 	log.Print("Running compenet with state %v", c.State)
-	r.Sync(c)
+	r.sync(c)
 	return result
 }
 
 // Stop a component by running its docker.Stop method. and updating the state to state.Completed.
-func (r *Runner) StopComponent(c *component.Component) docker.DockerResult {
+func (r *Maker) stopComponent(c *component.Component) docker.DockerResult {
 	result := c.Docker.Stop()
 	if result.Error != nil {
 		log.Printf("Error stopping component %s: %v", c.Docker.ContainerId, result.Error)
 		c.State = component.Completed
-		r.Sync(c)
+		r.sync(c)
 		return result
 	}
 	c.State = component.Completed
-	r.Sync(c)
+	r.sync(c)
 	log.Printf("Stopped and removed container %v for component %v", c.Docker.ContainerId, c.ID)
 	return result
 }
 
 // Ensure that components states are up to date.
-func (r *Runner) Sync(c *component.Component) {
+func (r *Maker) sync(c *component.Component) {
 	// TODO: Should be rewritten to sync to persisitent datastore.
 	r.Db[c.ID] = c
 }
 
 // Schedule a component to run, State.Pending -> State.Scheduled
-func (r *Runner) Schedule(c component.Component) component.Component {
+func (r *Maker) Schedule(c component.Component) component.Component {
 	if c.State == component.Pending {
 		c.State = component.Scheduled
 		r.ComponentCount += 1

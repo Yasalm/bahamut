@@ -23,18 +23,17 @@ type Api struct {
 /*
 Need to address dependices for example Metabase to be production ready it needs to have a database. Wheather to use its own or the main USER database
 */
+// because it is of type database it loads implementation of the interface of given type.
 type Component struct {
 	Name   string // this name will be used as docker name added UUID.
 	ID     uuid.UUID
 	State  State
 	Docker *docker.Docker
-	// TODO: add logic to handle specific Component behavior or features such as Component:Integration should be differnent than Component:Database in method they perform.
-	OfType types.RunnerGroup
-	// TODO: add Api to expose both,  1) Our own internal features to handle this Component, 2)  Api of that given service for instance metabase to query or post questions
-	Api Api
+	OfType types.MakerType // TODO: add logic to handle specific Component behavior or features such as Component:Integration should be differnent than Component:Database in method they perform.
+	// Api Api // TODO: add Api to expose both,  1) Our own internal features to handle this Component, 2)  Api of that given service for instance metabase to query or post questions
 }
 
-func New(Name string, OfType types.RunnerGroup, options types.Options) *Component {
+func New(Name string, OfType types.MakerType, options types.Options) *Component {
 	config := docker.NewConig(Name, options.Image, options.Env, options.RestartPolicy)
 	docker := docker.NewDocker(config)
 
@@ -44,7 +43,6 @@ func New(Name string, OfType types.RunnerGroup, options types.Options) *Componen
 		State:  Pending,
 		Docker: docker,
 		OfType: OfType,
-		Api:    Api{},
 	}
 	return comp
 }
